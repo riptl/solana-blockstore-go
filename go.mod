@@ -6,10 +6,10 @@ require (
 	github.com/gagliardetto/binary v0.6.1
 	github.com/gagliardetto/solana-go v1.5.0
 	github.com/linxGnu/grocksdb v1.7.5
-	github.com/samber/lo v1.27.0
+	golang.org/x/exp v0.0.0-20220303212507-bbda1eaf7a17
 )
 
-replace github.com/gagliardetto/solana-go => github.com/terorie/solana-go d850995
+replace github.com/gagliardetto/solana-go => github.com/terorie/solana-go v1.5.1-0.20220813194751-d850995ca5fb
 
 require (
 	contrib.go.opencensus.io/exporter/stackdriver v0.13.4 // indirect
@@ -23,6 +23,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/logrusorgru/aurora v2.0.3+incompatible // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
 	github.com/mattn/go-isatty v0.0.11 // indirect
@@ -31,6 +32,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mostynb/zstdpool-freelist v0.0.0-20201229113212-927304c0c3b1 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
+	github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/streamingfast/logging v0.0.0-20220405224725-2755dab2ce75 // indirect
 	github.com/stretchr/testify v1.8.0 // indirect
@@ -43,8 +45,8 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.21.0 // indirect
 	golang.org/x/crypto v0.0.0-20220214200702-86341886e292 // indirect
-	golang.org/x/exp v0.0.0-20220303212507-bbda1eaf7a17 // indirect
 	golang.org/x/sys v0.0.0-20211019181941-9d821ace8654 // indirect
 	golang.org/x/term v0.0.0-20201210144234-2321bbc49cbf // indirect
+	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

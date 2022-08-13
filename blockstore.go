@@ -4,8 +4,6 @@
 // https://docs.rs/solana-ledger/latest/solana_ledger/blockstore/struct.Blockstore.html
 //
 // Supported Solana versions: v1.12.0
-//
-// Supported columns: meta, root
 package blockstore
 
 import (
