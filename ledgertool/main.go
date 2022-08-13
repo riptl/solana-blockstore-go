@@ -26,6 +26,7 @@ func main() {
 		flagRoot               bool
 		flagHeight             bool
 		flagGetDataShred       string
+		flagGetCodeShred       string
 		flagSlotMeta           uint64
 	)
 
@@ -46,7 +47,8 @@ FLAGS
 	flag.BoolVar(&flagRoot, "root", false, "Show root slot")
 	flag.BoolVar(&flagHeight, "height", false, "Show block height")
 	flag.Uint64Var(&flagSlotMeta, "slot", 0, "Get slot metadata")
-	flag.StringVar(&flagGetDataShred, "data-shred", "", "Dump specific data shred (slot:index)")
+	flag.StringVar(&flagGetDataShred, "data-shreds", "", "Dump data shreds (space-separated list of `slot` or `slot:index`)")
+	flag.StringVar(&flagGetCodeShred, "coding-shreds", "", "Dump coding shreds")
 	flag.Parse()
 
 	if flagDBPath == "" {
@@ -85,7 +87,10 @@ FLAGS
 		ok = ok && getSlotMeta(db, flagSlotMeta)
 	}
 	if flagGetDataShred != "" {
-		ok = ok && getDataShred(db, flagGetDataShred)
+		ok = ok && getShreds(db, flagGetDataShred, false)
+	}
+	if flagGetCodeShred != "" {
+		ok = ok && getShreds(db, flagGetDataShred, true)
 	}
 
 	if !ok {
@@ -133,7 +138,7 @@ func parseShredIndex(shredStr string) (slot, index uint64, ok bool) {
 		return
 	}
 	var err error
-	if slot, err = strconv.ParseUint(shredStr[:sep-1], 10, 64); err != nil {
+	if slot, err = strconv.ParseUint(shredStr[:sep], 10, 64); err != nil {
 		return
 	}
 	if index, err = strconv.ParseUint(shredStr[sep+1:], 10, 64); err != nil {
@@ -160,14 +165,20 @@ func getSlotMeta(db *blockstore.DB, slot uint64) bool {
 	return true
 }
 
-func getDataShred(db *blockstore.DB, shredStr string) bool {
+func getShreds(db *blockstore.DB, shredStr string, coding bool) bool {
 	slot, index, ok := parseShredIndex(shredStr)
 	if !ok {
 		log.Print("Invalid data shred index: ", shredStr)
 		return false
 	}
 
-	shred, err := db.GetDataShred(slot, index)
+	var shred *grocksdb.Slice
+	var err error
+	if coding {
+		shred, err = db.GetCodingShred(slot, index)
+	} else {
+		shred, err = db.GetDataShred(slot, index)
+	}
 	if err != nil {
 		log.Printf("Can't get shred %s: %s", shredStr, err)
 		return false
@@ -178,10 +189,20 @@ func getDataShred(db *blockstore.DB, shredStr string) bool {
 	}
 	defer shred.Free()
 
-	fmt.Printf(`data_shred:
+	var shredType string
+	if coding {
+		shredType = "coding_shred"
+	} else {
+		shredType = "data_shred"
+	}
+
+	fmt.Printf(`%s:
   %s: |
     %s
-`, jsonStr(shredStr), base64.StdEncoding.EncodeToString(shred.Data()))
+`,
+		shredType,
+		jsonStr(shredStr),
+		base64.StdEncoding.EncodeToString(shred.Data()))
 
 	return true
 }

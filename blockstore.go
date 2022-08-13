@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gagliardetto/binary"
 	"github.com/linxGnu/grocksdb"
 )
 
@@ -21,18 +20,21 @@ import (
 type DB struct {
 	db *grocksdb.DB
 
-	cfMeta      *grocksdb.ColumnFamilyHandle
-	cfRoot      *grocksdb.ColumnFamilyHandle
-	cfDataShred *grocksdb.ColumnFamilyHandle
-	cfCodeShred *grocksdb.ColumnFamilyHandle
+	cfMeta        *grocksdb.ColumnFamilyHandle
+	cfRoot        *grocksdb.ColumnFamilyHandle
+	cfBlockHeight *grocksdb.ColumnFamilyHandle
+	cfDataShred   *grocksdb.ColumnFamilyHandle
+	cfCodeShred   *grocksdb.ColumnFamilyHandle
 }
 
+// Column families
 const (
-	CfDefault   = "default"
-	CfMeta      = "meta"
-	CfRoot      = "root"
-	CfDataShred = "data_shred"
-	CfCodeShred = "code_shred"
+	CfDefault     = "default"
+	CfMeta        = "meta"
+	CfRoot        = "root"
+	CfBlockHeight = "block_height"
+	CfDataShred   = "data_shred"
+	CfCodeShred   = "code_shred"
 )
 
 // ErrNoRow is returned when no row is found.
@@ -86,6 +88,7 @@ var columnFamilyNames = []string{
 	CfDefault,
 	CfMeta,
 	CfRoot,
+	CfBlockHeight,
 	CfDataShred,
 	CfCodeShred,
 }
@@ -94,6 +97,7 @@ func getOpts() (opts *grocksdb.Options, cfNames []string, cfOpts []*grocksdb.Opt
 	opts = grocksdb.NewDefaultOptions()
 	cfNames = columnFamilyNames
 	cfOpts = []*grocksdb.Options{
+		grocksdb.NewDefaultOptions(),
 		grocksdb.NewDefaultOptions(),
 		grocksdb.NewDefaultOptions(),
 		grocksdb.NewDefaultOptions(),
@@ -109,11 +113,12 @@ func newDB(rawDB *grocksdb.DB, cfHandles []*grocksdb.ColumnFamilyHandle) (*DB, e
 		return nil, fmt.Errorf("unexpected number of column families: %d", len(cfHandles))
 	}
 	db := &DB{
-		db:          rawDB,
-		cfMeta:      cfHandles[1],
-		cfRoot:      cfHandles[2],
-		cfDataShred: cfHandles[3],
-		cfCodeShred: cfHandles[4],
+		db:            rawDB,
+		cfMeta:        cfHandles[1],
+		cfRoot:        cfHandles[2],
+		cfBlockHeight: cfHandles[3],
+		cfDataShred:   cfHandles[4],
+		cfCodeShred:   cfHandles[5],
 	}
 	return db, nil
 }
@@ -145,58 +150,75 @@ func (d *DB) MaxRoot() (uint64, error) {
 // GetBlockHeight returns the last known root slot.
 func (d *DB) GetBlockHeight() (uint64, error) {
 	opts := grocksdb.NewDefaultReadOptions()
-	iter := d.db.NewIteratorCF(opts, d.cfRoot)
+	iter := d.db.NewIteratorCF(opts, d.cfBlockHeight)
 	defer iter.Close()
 	iter.SeekToLast()
 	if !iter.Valid() {
 		return 0, ErrNoRow
 	}
-	return parseSlotKey(iter.Key())
+	return binary.LittleEndian.Uint64(iter.Value().Data()), nil
 }
 
 func parseSlotKey(key *grocksdb.Slice) (uint64, error) {
 	return binary.BigEndian.Uint64(key.Data()), nil
 }
 
-func makeSlotKey(slot uint64) (key [8]byte) {
+// MakeSlotKey creates the RocksDB key for CfMeta, CfRoot.
+func MakeSlotKey(slot uint64) (key [8]byte) {
 	binary.BigEndian.PutUint64(key[0:8], slot)
 	return
 }
 
-func makeShredKey(slot, index uint64) (key [16]byte) {
+// MakeShredKey creates the RocksDB key for CfDataShred or CfCodeShred.
+func MakeShredKey(slot, index uint64) (key [16]byte) {
 	binary.BigEndian.PutUint64(key[0:8], slot)
 	binary.BigEndian.PutUint64(key[8:16], index)
 	return
 }
 
+// GetSlotMeta returns the shredding metadata of a given slot.
 func (d *DB) GetSlotMeta(slot uint64) (*SlotMeta, error) {
-	opts := grocksdb.NewDefaultReadOptions()
-	key := makeSlotKey(slot)
-	res, err := d.db.GetCF(opts, d.cfMeta, key[:])
-	if err != nil {
-		return nil, err
-	}
-	if !res.Exists() {
-		return nil, ErrNoRow
-	}
-	defer res.Free()
-
-	dec := bin.NewBinDecoder(res.Data())
-	meta := new(SlotMeta)
-	err = dec.Decode(meta)
-	return meta, err
+	key := MakeSlotKey(slot)
+	return getBincode[SlotMeta](d.db, d.cfMeta, key[:])
 }
 
+// GetDataShred returns the content of a given data shred.
 func (d *DB) GetDataShred(slot, index uint64) (*grocksdb.Slice, error) {
 	opts := grocksdb.NewDefaultReadOptions()
-	key := makeShredKey(slot, index)
+	key := MakeShredKey(slot, index)
 	return d.db.GetCF(opts, d.cfDataShred, key[:])
 }
 
-/*
-func (d *DB) GetDataShreds(slot, fromIndex, toIndex uint64) ([]byte, error) {
+// GetCodingShred returns the content of a given coding shred.
+func (d *DB) GetCodingShred(slot, index uint64) (*grocksdb.Slice, error) {
 	opts := grocksdb.NewDefaultReadOptions()
-	key := makeShredKey(slot, index)
-	return d.db.GetCF(opts, d.cfDataShred, key[:])
+	key := MakeShredKey(slot, index)
+	return d.db.GetCF(opts, d.cfCodeShred, key[:])
 }
-*/
+
+// IterDataShreds creates an iterator over CfDataShred.
+//
+// Use MakeSlotKey to construct a prefix,
+// or MakeShredKey to seek to a specific shred.
+//
+// It's the caller's responsibility to close the iterator.
+func (d *DB) IterDataShreds(opts *grocksdb.ReadOptions) *grocksdb.Iterator {
+	return d.iterShreds(opts, d.cfDataShred)
+}
+
+// IterCodingShreds creates an iterator over CfCodeShred.
+//
+// Use MakeSlotKey to construct a prefix,
+// or MakeShredKey to seek to a specific shred.
+//
+// It's the caller's responsibility to close the iterator.
+func (d *DB) IterCodingShreds(opts *grocksdb.ReadOptions) *grocksdb.Iterator {
+	return d.iterShreds(opts, d.cfCodeShred)
+}
+
+func (d *DB) iterShreds(opts *grocksdb.ReadOptions, cf *grocksdb.ColumnFamilyHandle) *grocksdb.Iterator {
+	if opts == nil {
+		opts = grocksdb.NewDefaultReadOptions()
+	}
+	return d.db.NewIteratorCF(opts, cf)
+}
