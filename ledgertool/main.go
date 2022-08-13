@@ -26,10 +26,11 @@ func main() {
 		flagListColumnFamilies bool
 		flagRoot               bool
 		flagHeight             bool
-		flagGetDataShred       string
-		flagGetCodeShred       string
 		flagAllSlots           bool
 		flagSlotMetas          []uint
+		flagBlock              uint64
+		flagGetDataShred       string
+		flagGetCodeShred       string
 	)
 
 	pflag.Usage = func() {
@@ -50,6 +51,7 @@ FLAGS
 	pflag.BoolVar(&flagHeight, "height", false, "Show block height")
 	pflag.BoolVar(&flagAllSlots, "all-slots", false, "Get all slot metadatas")
 	pflag.UintSliceVar(&flagSlotMetas, "slot", nil, "Get slot metadata")
+	pflag.Uint64Var(&flagBlock, "block", 0, "Get block")
 	pflag.StringVar(&flagGetDataShred, "data-shreds", "", "Dump data shreds (space-separated list of `slot` or `slot:index`)")
 	pflag.StringVar(&flagGetCodeShred, "coding-shreds", "", "Dump coding shreds")
 	pflag.Parse()
@@ -94,6 +96,9 @@ FLAGS
 		ok = ok && getAllSlotMetas(db)
 	} else if len(flagSlotMetas) > 0 {
 		ok = ok && getSlotMetas(db, flagSlotMetas)
+	}
+	if flagBlock != 0 {
+		ok = ok && getBlock(db, flagBlock)
 	}
 	if flagGetDataShred != "" {
 		ok = ok && getShreds(db, flagGetDataShred, false)
@@ -227,6 +232,26 @@ func dumpSlots(metaMap map[uint64]*blockstore.SlotMeta) {
 	if err := enc.Encode(metaMap); err != nil {
 		panic(err.Error())
 	}
+}
+
+func getBlock(db *blockstore.DB, slot uint64) bool {
+	block, err := db.GetBlock(slot)
+	if err != nil {
+		log.Printf("Failed to get block %d: %s", slot, err)
+		return false
+	}
+
+	// super ugly but whatever
+	// Need this hack to have instruction data ([]byte) serialized as base64, not a massive byte-by-byte list
+	blockStr := jsonStr(block)
+	var x any
+	_ = json.Unmarshal([]byte(blockStr), &x)
+	fmt.Println("blocks:")
+	fmt.Printf("  %d:\n", slot)
+	enc := yaml.NewEncoder(textio.NewPrefixWriter(os.Stdout, "    "))
+	enc.SetIndent(2)
+	enc.Encode(x)
+	return true
 }
 
 func getShreds(db *blockstore.DB, shredStr string, coding bool) bool {

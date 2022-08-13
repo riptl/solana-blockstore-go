@@ -22,7 +22,7 @@ func GetBincode[T any](db *grocksdb.DB, cf *grocksdb.ColumnFamilyHandle, key []b
 		return nil, err
 	}
 	if !res.Exists() {
-		return nil, ErrNoRow
+		return nil, ErrNotFound
 	}
 	defer res.Free()
 	return ParseBincode[T](res.Data())
