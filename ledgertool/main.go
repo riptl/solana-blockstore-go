@@ -16,7 +16,6 @@ import (
 	"github.com/segmentio/textio"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
-	"terorie.dev/solana/blockstore"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-module terorie.dev/solana/blockstore
+module github.com/terorie/solana-blockstore-go
 
 go 1.18
 
