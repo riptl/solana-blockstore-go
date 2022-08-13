@@ -144,7 +144,7 @@ func (d *DB) MaxRoot() (uint64, error) {
 	if !iter.Valid() {
 		return 0, ErrNoRow
 	}
-	return parseSlotKey(iter.Key())
+	return ParseSlotKey(iter.Key().Data())
 }
 
 // GetBlockHeight returns the last known root slot.
@@ -159,8 +159,8 @@ func (d *DB) GetBlockHeight() (uint64, error) {
 	return binary.LittleEndian.Uint64(iter.Value().Data()), nil
 }
 
-func parseSlotKey(key *grocksdb.Slice) (uint64, error) {
-	return binary.BigEndian.Uint64(key.Data()), nil
+func ParseSlotKey(key []byte) (uint64, error) {
+	return binary.BigEndian.Uint64(key), nil
 }
 
 // MakeSlotKey creates the RocksDB key for CfMeta, CfRoot.
@@ -179,7 +179,30 @@ func MakeShredKey(slot, index uint64) (key [16]byte) {
 // GetSlotMeta returns the shredding metadata of a given slot.
 func (d *DB) GetSlotMeta(slot uint64) (*SlotMeta, error) {
 	key := MakeSlotKey(slot)
-	return getBincode[SlotMeta](d.db, d.cfMeta, key[:])
+	return GetBincode[SlotMeta](d.db, d.cfMeta, key[:])
+}
+
+// MultiGetSlotMeta does multiple GetSlotMeta calls.
+func (d *DB) MultiGetSlotMeta(slots ...uint64) ([]*SlotMeta, error) {
+	keys := make([][]byte, len(slots))
+	for i, slot := range slots {
+		key := MakeSlotKey(slot)
+		keys[i] = key[:] // heap escape
+	}
+	return MultiGetBincode[SlotMeta](d.db, d.cfMeta, keys...)
+}
+
+// IterSlotMetas creates an iterator over CfMeta.
+//
+// Use MakeSlotKey to seek to a specific slot.
+//
+// It's the caller's responsibility to close the iterator.
+func (d *DB) IterSlotMetas(opts *grocksdb.ReadOptions) IterBincode[SlotMeta] {
+	if opts == nil {
+		opts = grocksdb.NewDefaultReadOptions()
+	}
+	rawIter := d.db.NewIteratorCF(opts, d.cfMeta)
+	return IterBincode[SlotMeta]{Iterator: rawIter}
 }
 
 // GetDataShred returns the content of a given data shred.

@@ -7,5 +7,5 @@ type IterBincode[T any] struct {
 }
 
 func (i IterBincode[T]) Element() (*T, error) {
-	return parseBincode[T](i.Value().Data())
+	return ParseBincode[T](i.Value().Data())
 }

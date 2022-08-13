@@ -1,7 +1,7 @@
 package blockstore
 
 type SlotMeta struct {
-	Slot                    uint64   `yaml:"slot"`
+	Slot                    uint64   `yaml:"-"`
 	Consumed                uint64   `yaml:"consumed"`
 	Received                uint64   `yaml:"received"`
 	FirstShredTimestamp     uint64   `yaml:"first_shred_timestamp"`

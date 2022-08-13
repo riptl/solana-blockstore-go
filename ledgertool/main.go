@@ -14,6 +14,8 @@ import (
 	"github.com/dfuse-io/logging"
 	"github.com/linxGnu/grocksdb"
 	"github.com/segmentio/textio"
+	"github.com/spf13/pflag"
+	blockstore "github.com/terorie/solana-blockstore-go"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )
@@ -26,10 +28,11 @@ func main() {
 		flagHeight             bool
 		flagGetDataShred       string
 		flagGetCodeShred       string
-		flagSlotMeta           uint64
+		flagAllSlots           bool
+		flagSlotMetas          []uint
 	)
 
-	flag.Usage = func() {
+	pflag.Usage = func() {
 		fmt.Fprint(flag.CommandLine.Output(), `USAGE
     ledgertool extracts info from a Solana ledger blockstore (RocksDB).
     Requested info is dumped in YAML format.
@@ -39,20 +42,25 @@ AUTHOR
 
 FLAGS
 `)
-		flag.PrintDefaults()
+		pflag.PrintDefaults()
 	}
-	flag.StringVar(&flagDBPath, "db", "", "Path to ledger/rocksdb dir (required)")
-	flag.BoolVar(&flagListColumnFamilies, "list-cfs", false, "List column families")
-	flag.BoolVar(&flagRoot, "root", false, "Show root slot")
-	flag.BoolVar(&flagHeight, "height", false, "Show block height")
-	flag.Uint64Var(&flagSlotMeta, "slot", 0, "Get slot metadata")
-	flag.StringVar(&flagGetDataShred, "data-shreds", "", "Dump data shreds (space-separated list of `slot` or `slot:index`)")
-	flag.StringVar(&flagGetCodeShred, "coding-shreds", "", "Dump coding shreds")
-	flag.Parse()
+	pflag.StringVar(&flagDBPath, "db", "", "Path to ledger/rocksdb dir (required)")
+	pflag.BoolVar(&flagListColumnFamilies, "list-cfs", false, "List column families")
+	pflag.BoolVar(&flagRoot, "root", false, "Show root slot")
+	pflag.BoolVar(&flagHeight, "height", false, "Show block height")
+	pflag.BoolVar(&flagAllSlots, "all-slots", false, "Get all slot metadatas")
+	pflag.UintSliceVar(&flagSlotMetas, "slot", nil, "Get slot metadata")
+	pflag.StringVar(&flagGetDataShred, "data-shreds", "", "Dump data shreds (space-separated list of `slot` or `slot:index`)")
+	pflag.StringVar(&flagGetCodeShred, "coding-shreds", "", "Dump coding shreds")
+	pflag.Parse()
 
-	if flagDBPath == "" {
-		fmt.Fprintln(flag.CommandLine.Output(), "missing -db flag")
+	if pflag.NArg() > 0 {
 		flag.Usage()
+		os.Exit(2)
+	}
+	if flagDBPath == "" {
+		flag.Usage()
+		fmt.Fprintln(flag.CommandLine.Output(), "missing --db flag")
 		os.Exit(2)
 	}
 
@@ -82,8 +90,10 @@ FLAGS
 	if flagHeight {
 		ok = ok && showBlockHeight(db)
 	}
-	if flagSlotMeta > 0 {
-		ok = ok && getSlotMeta(db, flagSlotMeta)
+	if flagAllSlots {
+		ok = ok && getAllSlotMetas(db)
+	} else if len(flagSlotMetas) > 0 {
+		ok = ok && getSlotMetas(db, flagSlotMetas)
 	}
 	if flagGetDataShred != "" {
 		ok = ok && getShreds(db, flagGetDataShred, false)
@@ -147,21 +157,76 @@ func parseShredIndex(shredStr string) (slot, index uint64, ok bool) {
 	return
 }
 
-func getSlotMeta(db *blockstore.DB, slot uint64) bool {
-	meta, err := db.GetSlotMeta(slot)
-	if err != nil {
-		log.Printf("Failed to get slot meta %d: %s\n", slot, err)
+func getAllSlotMetas(db *blockstore.DB) (ok bool) {
+	ok = true
+	iter := db.IterSlotMetas(grocksdb.NewDefaultReadOptions())
+	defer iter.Close()
+
+	// Get low bound
+	var lowSlot, highSlot uint64
+	iter.SeekToFirst()
+	if iter.Valid() {
+		lowSlot, _ = blockstore.ParseSlotKey(iter.Key().Data())
 	}
-	fmt.Printf(`slot_meta:
-  %d:
-`, slot)
-	enc := yaml.NewEncoder(textio.NewPrefixWriter(os.Stdout, "    "))
+
+	// Collect all slots to map
+	metaMap := make(map[uint64]*blockstore.SlotMeta)
+	for iter.SeekToFirst(); iter.Valid(); iter.Next() {
+		slot, err := blockstore.ParseSlotKey(iter.Key().Data())
+		if err != nil {
+			log.Printf("Ignoring slot meta key: %x", iter.Key().Data())
+			ok = false
+			continue
+		}
+		meta, err := iter.Element()
+		if err != nil {
+			log.Printf("While ranging slot metas (%x): %s", iter.Key().Data(), err)
+			ok = false
+			continue
+		}
+		metaMap[slot] = meta
+	}
+
+	// Get high bound
+	iter.SeekToLast()
+	if iter.Valid() {
+		highSlot, _ = blockstore.ParseSlotKey(iter.Key().Data())
+	}
+	fmt.Println("slot_meta_range:")
+	fmt.Println("  first:", lowSlot)
+	fmt.Println("  last:", highSlot)
+
+	dumpSlots(metaMap)
+	return ok
+}
+
+func getSlotMetas(db *blockstore.DB, slots []uint) bool {
+	slots64 := make([]uint64, len(slots))
+	for i, s := range slots {
+		slots64[i] = uint64(s)
+	}
+
+	metas, err := db.MultiGetSlotMeta(slots64...)
+	if err != nil {
+		log.Println("Failed to get slot metas:", err)
+	}
+	fmt.Println("slot_meta")
+
+	metaMap := make(map[uint64]*blockstore.SlotMeta)
+	for i, meta := range metas {
+		metaMap[slots64[i]] = meta
+	}
+	dumpSlots(metaMap)
+	return true
+}
+
+func dumpSlots(metaMap map[uint64]*blockstore.SlotMeta) {
+	fmt.Println("slots:")
+	enc := yaml.NewEncoder(textio.NewPrefixWriter(os.Stdout, "  "))
 	enc.SetIndent(2)
-	defer enc.Close()
-	if err := enc.Encode(meta); err != nil {
+	if err := enc.Encode(metaMap); err != nil {
 		panic(err.Error())
 	}
-	return true
 }
 
 func getShreds(db *blockstore.DB, shredStr string, coding bool) bool {
