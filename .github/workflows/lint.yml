@@ -17,6 +17,17 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: 1.19.x
+      - run: |
+          sudo apt-get install -y build-essential zlib1g-dev libzstd-dev libsnappy-dev liblz4-dev
+      - run: |
+          mkdir ~/rocksdb
+          cd ~/rocksdb
+          wget -O rocksdb.tar.gz https://github.com/facebook/rocksdb/archive/refs/tags/v7.4.5.tar.gz
+          tar -xvf rocksdb.tar.gz
+          cd rocksdb-7.4.5/
+          make static_lib -j5
+          sudo make install
+          cd ../..
       - run: go vet ./...
       #- name: golangci-lint
       #  uses: golangci/golangci-lint-action@v3
