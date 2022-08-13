@@ -3,9 +3,9 @@
 // For the reference implementation in Rust, see here:
 // https://docs.rs/solana-ledger/latest/solana_ledger/blockstore_db/struct.Database.html
 //
-// Supported Solana versions: v1.20.0
+// Supported Solana versions: v1.12.0
 //
-// Supported columns: None
+// Supported columns: meta, root
 package blockstore
 
 import (
@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gagliardetto/binary"
 	"github.com/linxGnu/grocksdb"
 )
 
@@ -20,14 +21,18 @@ import (
 type DB struct {
 	db *grocksdb.DB
 
-	cfMeta *grocksdb.ColumnFamilyHandle
-	cfRoot *grocksdb.ColumnFamilyHandle
+	cfMeta      *grocksdb.ColumnFamilyHandle
+	cfRoot      *grocksdb.ColumnFamilyHandle
+	cfDataShred *grocksdb.ColumnFamilyHandle
+	cfCodeShred *grocksdb.ColumnFamilyHandle
 }
 
 const (
-	CfDefault = "default"
-	CfMeta    = "meta"
-	CfRoot    = "root"
+	CfDefault   = "default"
+	CfMeta      = "meta"
+	CfRoot      = "root"
+	CfDataShred = "data_shred"
+	CfCodeShred = "code_shred"
 )
 
 // ErrNoRow is returned when no row is found.
@@ -81,12 +86,16 @@ var columnFamilyNames = []string{
 	CfDefault,
 	CfMeta,
 	CfRoot,
+	CfDataShred,
+	CfCodeShred,
 }
 
 func getOpts() (opts *grocksdb.Options, cfNames []string, cfOpts []*grocksdb.Options) {
 	opts = grocksdb.NewDefaultOptions()
 	cfNames = columnFamilyNames
 	cfOpts = []*grocksdb.Options{
+		grocksdb.NewDefaultOptions(),
+		grocksdb.NewDefaultOptions(),
 		grocksdb.NewDefaultOptions(),
 		grocksdb.NewDefaultOptions(),
 		grocksdb.NewDefaultOptions(),
@@ -100,9 +109,11 @@ func newDB(rawDB *grocksdb.DB, cfHandles []*grocksdb.ColumnFamilyHandle) (*DB, e
 		return nil, fmt.Errorf("unexpected number of column families: %d", len(cfHandles))
 	}
 	db := &DB{
-		db:     rawDB,
-		cfMeta: cfHandles[0],
-		cfRoot: cfHandles[1],
+		db:          rawDB,
+		cfMeta:      cfHandles[1],
+		cfRoot:      cfHandles[2],
+		cfDataShred: cfHandles[3],
+		cfCodeShred: cfHandles[4],
 	}
 	return db, nil
 }
@@ -123,11 +134,69 @@ func (d *DB) Close() {
 func (d *DB) MaxRoot() (uint64, error) {
 	opts := grocksdb.NewDefaultReadOptions()
 	iter := d.db.NewIteratorCF(opts, d.cfRoot)
+	defer iter.Close()
 	iter.SeekToLast()
 	if !iter.Valid() {
 		return 0, ErrNoRow
 	}
-	key := iter.Key()
-	defer key.Free()
+	return parseSlotKey(iter.Key())
+}
+
+// GetBlockHeight returns the last known root slot.
+func (d *DB) GetBlockHeight() (uint64, error) {
+	opts := grocksdb.NewDefaultReadOptions()
+	iter := d.db.NewIteratorCF(opts, d.cfRoot)
+	defer iter.Close()
+	iter.SeekToLast()
+	if !iter.Valid() {
+		return 0, ErrNoRow
+	}
+	return parseSlotKey(iter.Key())
+}
+
+func parseSlotKey(key *grocksdb.Slice) (uint64, error) {
 	return binary.BigEndian.Uint64(key.Data()), nil
 }
+
+func makeSlotKey(slot uint64) (key [8]byte) {
+	binary.BigEndian.PutUint64(key[0:8], slot)
+	return
+}
+
+func makeShredKey(slot, index uint64) (key [16]byte) {
+	binary.BigEndian.PutUint64(key[0:8], slot)
+	binary.BigEndian.PutUint64(key[8:16], index)
+	return
+}
+
+func (d *DB) GetSlotMeta(slot uint64) (*SlotMeta, error) {
+	opts := grocksdb.NewDefaultReadOptions()
+	key := makeSlotKey(slot)
+	res, err := d.db.GetCF(opts, d.cfMeta, key[:])
+	if err != nil {
+		return nil, err
+	}
+	if !res.Exists() {
+		return nil, ErrNoRow
+	}
+	defer res.Free()
+
+	dec := bin.NewBinDecoder(res.Data())
+	meta := new(SlotMeta)
+	err = dec.Decode(meta)
+	return meta, err
+}
+
+func (d *DB) GetDataShred(slot, index uint64) (*grocksdb.Slice, error) {
+	opts := grocksdb.NewDefaultReadOptions()
+	key := makeShredKey(slot, index)
+	return d.db.GetCF(opts, d.cfDataShred, key[:])
+}
+
+/*
+func (d *DB) GetDataShreds(slot, fromIndex, toIndex uint64) ([]byte, error) {
+	opts := grocksdb.NewDefaultReadOptions()
+	key := makeShredKey(slot, index)
+	return d.db.GetCF(opts, d.cfDataShred, key[:])
+}
+*/
