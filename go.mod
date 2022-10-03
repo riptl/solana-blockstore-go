@@ -3,7 +3,7 @@ module github.com/terorie/solana-blockstore-go
 go 1.18
 
 require (
-	github.com/gagliardetto/binary v0.6.1
+	github.com/gagliardetto/binary v0.7.2
 	github.com/gagliardetto/solana-go v1.5.0
 	github.com/linxGnu/grocksdb v1.7.5
 	golang.org/x/exp v0.0.0-20220303212507-bbda1eaf7a17
