@@ -3,7 +3,7 @@ module github.com/terorie/solana-blockstore-go
 go 1.18
 
 require (
-	github.com/gagliardetto/binary v0.6.1
+	github.com/gagliardetto/binary v0.7.8
 	github.com/gagliardetto/solana-go v1.5.0
 	github.com/linxGnu/grocksdb v1.7.5
 	golang.org/x/exp v0.0.0-20220303212507-bbda1eaf7a17
@@ -37,9 +37,6 @@ require (
 	github.com/streamingfast/logging v0.0.0-20220405224725-2755dab2ce75 // indirect
 	github.com/stretchr/testify v1.8.0 // indirect
 	github.com/teris-io/shortid v0.0.0-20201117134242-e59966efd125 // indirect
-	github.com/tidwall/gjson v1.9.3 // indirect
-	github.com/tidwall/match v1.1.1 // indirect
-	github.com/tidwall/pretty v1.2.0 // indirect
 	go.opencensus.io v0.22.5 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
